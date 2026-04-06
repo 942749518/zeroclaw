@@ -119,7 +119,8 @@ impl OllamaProvider {
         }
 
         trimmed
-            .strip_suffix("/api")
+            .strip_suffix("/api/chat")
+            .or_else(|| trimmed.strip_suffix("/api"))
             .unwrap_or(trimmed)
             .trim_end_matches('/')
             .to_string()
@@ -845,12 +846,14 @@ impl Provider for OllamaProvider {
                 let tools: Vec<serde_json::Value> = specs
                     .iter()
                     .map(|s| {
+                        let params =
+                            crate::tools::SchemaCleanr::clean_for_openai(s.parameters.clone());
                         serde_json::json!({
                             "type": "function",
                             "function": {
                                 "name": s.name,
                                 "description": s.description,
-                                "parameters": s.parameters
+                                "parameters": params
                             }
                         })
                     })
@@ -905,6 +908,12 @@ mod tests {
     }
 
     #[test]
+    fn custom_url_strips_api_chat_suffix() {
+        let p = OllamaProvider::new(Some("http://172.30.30.50:11434/api/chat"), None);
+        assert_eq!(p.base_url, "http://172.30.30.50:11434");
+    }
+
+    #[test]
     fn empty_url_uses_empty() {
         let p = OllamaProvider::new(Some(""), None);
         assert_eq!(p.base_url, "");
@@ -924,9 +933,11 @@ mod tests {
         let error = p
             .resolve_request_details("qwen3:cloud")
             .expect_err("cloud suffix should fail on local endpoint");
-        assert!(error
-            .to_string()
-            .contains("requested cloud routing, but Ollama endpoint is local"));
+        assert!(
+            error
+                .to_string()
+                .contains("requested cloud routing, but Ollama endpoint is local")
+        );
     }
 
     #[test]
@@ -935,9 +946,11 @@ mod tests {
         let error = p
             .resolve_request_details("qwen3:cloud")
             .expect_err("cloud suffix should require API key");
-        assert!(error
-            .to_string()
-            .contains("requested cloud routing, but no API key is configured"));
+        assert!(
+            error
+                .to_string()
+                .contains("requested cloud routing, but no API key is configured")
+        );
     }
 
     #[test]
@@ -1316,11 +1329,13 @@ mod tests {
     fn effective_content_returns_none_when_both_empty() {
         assert!(OllamaProvider::effective_content("", None).is_none());
         assert!(OllamaProvider::effective_content("", Some("")).is_none());
-        assert!(OllamaProvider::effective_content(
-            "<think>only thinking</think>",
-            Some("<think>also only thinking</think>")
-        )
-        .is_none());
+        assert!(
+            OllamaProvider::effective_content(
+                "<think>only thinking</think>",
+                Some("<think>also only thinking</think>")
+            )
+            .is_none()
+        );
     }
 
     #[test]

@@ -1,19 +1,22 @@
 #[cfg(feature = "channel-matrix")]
 use crate::channels::MatrixChannel;
+#[cfg(feature = "whatsapp-web")]
+use crate::channels::WhatsAppWebChannel;
 use crate::channels::{
     Channel, DiscordChannel, MattermostChannel, QQChannel, SendMessage, SignalChannel,
     SlackChannel, TelegramChannel,
 };
 use crate::config::Config;
+use crate::config::schema::{CronJobDecl, CronScheduleDecl};
 use crate::cron::{
-    all_overdue_jobs, due_jobs, next_run_for_schedule, record_last_run, record_run, remove_job,
-    reschedule_after_run, update_job, CronJob, CronJobPatch, DeliveryConfig, JobType, Schedule,
-    SessionTarget,
+    CronJob, CronJobPatch, DeliveryConfig, JobType, Schedule, SessionTarget, all_overdue_jobs,
+    due_jobs, next_run_for_schedule, record_last_run, record_run, remove_job, reschedule_after_run,
+    sync_declarative_jobs, update_job,
 };
 use crate::security::SecurityPolicy;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use futures_util::{stream, StreamExt};
+use futures_util::{StreamExt, stream};
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::process::Command;
@@ -23,7 +26,11 @@ const MIN_POLL_SECONDS: u64 = 5;
 const SHELL_JOB_TIMEOUT_SECS: u64 = 120;
 const SCHEDULER_COMPONENT: &str = "scheduler";
 
-pub async fn run(config: Config) -> Result<()> {
+/// Type alias for the optional broadcast sender used to push cron results
+/// to connected dashboard/SSE clients.
+pub type EventBroadcast = Option<tokio::sync::broadcast::Sender<serde_json::Value>>;
+
+pub async fn run(config: Config, event_tx: EventBroadcast) -> Result<()> {
     let poll_secs = config.reliability.scheduler_poll_secs.max(MIN_POLL_SECONDS);
     let mut interval = time::interval(Duration::from_secs(poll_secs));
     interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
@@ -34,6 +41,44 @@ pub async fn run(config: Config) -> Result<()> {
 
     crate::health::mark_component_ok(SCHEDULER_COMPONENT);
 
+    // ── Declarative job sync: reconcile config-defined jobs with the DB.
+    let mut jobs_with_builtin = config.cron.jobs.clone();
+    if let Some(ref schedule_cron) = config.backup.schedule_cron {
+        let backup_job = CronJobDecl {
+            id: "__builtin_backup".to_string(),
+            name: Some("Scheduled backup".to_string()),
+            job_type: "shell".to_string(),
+            schedule: CronScheduleDecl::Cron {
+                expr: schedule_cron.clone(),
+                tz: config.backup.schedule_timezone.clone(),
+            },
+            command: Some("backup create".to_string()),
+            prompt: None,
+            enabled: true,
+            model: None,
+            allowed_tools: None,
+            session_target: None,
+            delivery: None,
+        };
+        tracing::debug!(
+            schedule = %schedule_cron,
+            "Synthesizing builtin backup cron job from config.backup.schedule_cron"
+        );
+        jobs_with_builtin.push(backup_job);
+    }
+
+    match sync_declarative_jobs(&config, &jobs_with_builtin) {
+        Ok(()) => {
+            if !jobs_with_builtin.is_empty() {
+                tracing::info!(
+                    count = jobs_with_builtin.len(),
+                    "Synced declarative cron jobs from config"
+                );
+            }
+        }
+        Err(e) => tracing::warn!("Failed to sync declarative cron jobs: {e}"),
+    }
+
     // ── Startup catch-up: run ALL overdue jobs before entering the
     //    normal polling loop. The regular loop is capped by `max_tasks`,
     //    which could leave some overdue jobs waiting across many cycles
@@ -41,7 +86,7 @@ pub async fn run(config: Config) -> Result<()> {
     //    without the `max_tasks` limit so every missed job fires once.
     //    Controlled by `[cron] catch_up_on_startup` (default: true).
     if config.cron.catch_up_on_startup {
-        catch_up_overdue_jobs(&config, &security).await;
+        catch_up_overdue_jobs(&config, &security, &event_tx).await;
     } else {
         tracing::info!("Scheduler startup: catch-up disabled by config");
     }
@@ -60,7 +105,7 @@ pub async fn run(config: Config) -> Result<()> {
             }
         };
 
-        process_due_jobs(&config, &security, jobs, SCHEDULER_COMPONENT).await;
+        process_due_jobs(&config, &security, jobs, SCHEDULER_COMPONENT, &event_tx).await;
     }
 }
 
@@ -68,7 +113,11 @@ pub async fn run(config: Config) -> Result<()> {
 ///
 /// Called once at scheduler startup so that jobs missed during downtime
 /// (e.g. late boot, daemon restart) are caught up immediately.
-async fn catch_up_overdue_jobs(config: &Config, security: &Arc<SecurityPolicy>) {
+async fn catch_up_overdue_jobs(
+    config: &Config,
+    security: &Arc<SecurityPolicy>,
+    event_tx: &EventBroadcast,
+) {
     let now = Utc::now();
     let jobs = match all_overdue_jobs(config, now) {
         Ok(jobs) => jobs,
@@ -88,7 +137,7 @@ async fn catch_up_overdue_jobs(config: &Config, security: &Arc<SecurityPolicy>) 
         "Scheduler startup: catching up overdue jobs"
     );
 
-    process_due_jobs(config, security, jobs, SCHEDULER_COMPONENT).await;
+    process_due_jobs(config, security, jobs, SCHEDULER_COMPONENT, event_tx).await;
 
     tracing::info!("Scheduler startup: catch-up complete");
 }
@@ -138,6 +187,7 @@ async fn process_due_jobs(
     security: &Arc<SecurityPolicy>,
     jobs: Vec<CronJob>,
     component: &str,
+    event_tx: &EventBroadcast,
 ) {
     // Refresh scheduler health on every successful poll cycle, including idle cycles.
     crate::health::mark_component_ok(component);
@@ -162,6 +212,16 @@ async fn process_due_jobs(
     while let Some((job_id, success, output)) = in_flight.next().await {
         if !success {
             tracing::warn!("Scheduler job '{job_id}' failed: {output}");
+        }
+        // Broadcast cron result to dashboard/SSE clients.
+        if let Some(tx) = event_tx {
+            let _ = tx.send(serde_json::json!({
+                "type": "cron_result",
+                "job_id": job_id,
+                "success": success,
+                "output": output,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            }));
         }
     }
 }
@@ -218,7 +278,28 @@ async fn run_agent_job(
     }
     let name = job.name.clone().unwrap_or_else(|| "cron-job".to_string());
     let prompt = job.prompt.clone().unwrap_or_default();
-    let prefixed_prompt = format!("[cron:{} {name}] {prompt}", job.id);
+
+    // Recall relevant memories so cron jobs have context awareness.
+    let memory_context = match crate::memory::create_memory(
+        &config.memory,
+        &config.workspace_dir,
+        config.api_key.as_deref(),
+    ) {
+        Ok(mem) => match mem.recall(&prompt, 5, None, None, None).await {
+            Ok(entries) if !entries.is_empty() => {
+                let ctx: String = entries
+                    .iter()
+                    .map(|e| format!("- {}: {}", e.key, e.content))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("[Memory context]\n{ctx}\n\n")
+            }
+            _ => String::new(),
+        },
+        Err(_) => String::new(),
+    };
+
+    let prefixed_prompt = format!("{memory_context}[cron:{} {name}] {prompt}", job.id);
     let model_override = job.model.clone();
 
     let run_result = match job.session_target {
@@ -321,26 +402,25 @@ fn is_one_shot_auto_delete(job: &CronJob) -> bool {
     job.delete_after_run && matches!(job.schedule, Schedule::At { .. })
 }
 
-fn warn_if_high_frequency_agent_job(job: &CronJob) {
+fn is_high_frequency_agent_job(job: &CronJob) -> bool {
     if !matches!(job.job_type, JobType::Agent) {
-        return;
+        return false;
     }
-    let too_frequent = match &job.schedule {
+    match &job.schedule {
         Schedule::Every { every_ms } => *every_ms < 5 * 60 * 1000,
         Schedule::Cron { .. } => {
             let now = Utc::now();
-            match (
-                next_run_for_schedule(&job.schedule, now),
-                next_run_for_schedule(&job.schedule, now + chrono::Duration::seconds(1)),
-            ) {
-                (Ok(a), Ok(b)) => (b - a).num_minutes() < 5,
-                _ => false,
-            }
+            next_run_for_schedule(&job.schedule, now)
+                .and_then(|a| next_run_for_schedule(&job.schedule, a).map(|b| (a, b)))
+                .map(|(a, b)| (b - a).num_minutes() < 5)
+                .unwrap_or(false)
         }
         Schedule::At { .. } => false,
-    };
+    }
+}
 
-    if too_frequent {
+fn warn_if_high_frequency_agent_job(job: &CronJob) {
+    if is_high_frequency_agent_job(job) {
         tracing::warn!(
             "Cron agent job '{}' is scheduled more frequently than every 5 minutes",
             job.id
@@ -375,12 +455,47 @@ async fn deliver_if_configured(config: &Config, job: &CronJob, output: &str) -> 
     deliver_announcement(config, channel, target, output).await
 }
 
+/// Output that has been scanned for credential leaks and redacted if necessary.
+/// All channel dispatch must use this type — constructing it requires going through
+/// `scan_and_redact_output`, which enforces leak detection on every outbound path.
+pub(crate) struct RedactedOutput(String);
+
+impl RedactedOutput {
+    /// Access the safe-to-send content.
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Scan cron job output for credential leaks and return redacted output if leaks are detected.
+/// Logs a warning with channel, target, and detected patterns when credentials are found.
+fn scan_and_redact_output(channel: &str, target: &str, output: &str) -> RedactedOutput {
+    let leak_detector = crate::security::LeakDetector::new();
+    let leak_check = leak_detector.scan(output);
+
+    match leak_check {
+        crate::security::LeakResult::Detected { patterns, redacted } => {
+            tracing::warn!(
+                channel = %channel,
+                target = %target,
+                patterns = ?patterns,
+                "Credential leak detected in cron job output; redacting before delivery"
+            );
+            RedactedOutput(redacted)
+        }
+        crate::security::LeakResult::Clean => RedactedOutput(output.to_string()),
+    }
+}
+
 pub(crate) async fn deliver_announcement(
     config: &Config,
     channel: &str,
     target: &str,
     output: &str,
 ) -> Result<()> {
+    // Scan for credential leaks before delivering cron job output to channel.
+    let safe_output = scan_and_redact_output(channel, target, output);
+
     match channel.to_ascii_lowercase().as_str() {
         "telegram" => {
             let tg = config
@@ -393,7 +508,9 @@ pub(crate) async fn deliver_announcement(
                 tg.allowed_users.clone(),
                 tg.mention_only,
             );
-            channel.send(&SendMessage::new(output, target)).await?;
+            channel
+                .send(&SendMessage::new(safe_output.as_str(), target))
+                .await?;
         }
         "discord" => {
             let dc = config
@@ -408,7 +525,9 @@ pub(crate) async fn deliver_announcement(
                 dc.listen_to_bots,
                 dc.mention_only,
             );
-            channel.send(&SendMessage::new(output, target)).await?;
+            channel
+                .send(&SendMessage::new(safe_output.as_str(), target))
+                .await?;
         }
         "slack" => {
             let sl = config
@@ -424,7 +543,9 @@ pub(crate) async fn deliver_announcement(
                 sl.allowed_users.clone(),
             )
             .with_workspace_dir(config.workspace_dir.clone());
-            channel.send(&SendMessage::new(output, target)).await?;
+            channel
+                .send(&SendMessage::new(safe_output.as_str(), target))
+                .await?;
         }
         "mattermost" => {
             let mm = config
@@ -440,7 +561,9 @@ pub(crate) async fn deliver_announcement(
                 mm.thread_replies.unwrap_or(true),
                 mm.mention_only.unwrap_or(false),
             );
-            channel.send(&SendMessage::new(output, target)).await?;
+            channel
+                .send(&SendMessage::new(safe_output.as_str(), target))
+                .await?;
         }
         "signal" => {
             let sg = config
@@ -456,7 +579,9 @@ pub(crate) async fn deliver_announcement(
                 sg.ignore_attachments,
                 sg.ignore_stories,
             );
-            channel.send(&SendMessage::new(output, target)).await?;
+            channel
+                .send(&SendMessage::new(safe_output.as_str(), target))
+                .await?;
         }
         "matrix" => {
             #[cfg(feature = "channel-matrix")]
@@ -476,11 +601,46 @@ pub(crate) async fn deliver_announcement(
                     mx.device_id.clone(),
                     config.config_path.parent().map(|path| path.to_path_buf()),
                 );
-                channel.send(&SendMessage::new(output, target)).await?;
+                channel
+                    .send(&SendMessage::new(safe_output.as_str(), target))
+                    .await?;
             }
             #[cfg(not(feature = "channel-matrix"))]
             {
                 anyhow::bail!("matrix delivery channel requires `channel-matrix` feature");
+            }
+        }
+        "whatsapp" | "whatsapp-web" | "whatsapp_web" => {
+            #[cfg(feature = "whatsapp-web")]
+            {
+                let wa = config
+                    .channels_config
+                    .whatsapp
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("whatsapp channel not configured"))?;
+                if !wa.is_web_config() {
+                    anyhow::bail!(
+                        "whatsapp cron delivery requires Web mode (session_path must be set)"
+                    );
+                }
+                let channel = WhatsAppWebChannel::new(
+                    wa.session_path.clone().unwrap_or_default(),
+                    wa.pair_phone.clone(),
+                    wa.pair_code.clone(),
+                    wa.allowed_numbers.clone(),
+                    wa.mention_only,
+                    wa.mode.clone(),
+                    wa.dm_policy.clone(),
+                    wa.group_policy.clone(),
+                    wa.self_chat_mode,
+                );
+                channel
+                    .send(&SendMessage::new(safe_output.as_str(), target))
+                    .await?;
+            }
+            #[cfg(not(feature = "whatsapp-web"))]
+            {
+                anyhow::bail!("whatsapp delivery channel requires `whatsapp-web` feature");
             }
         }
         "qq" => {
@@ -494,7 +654,9 @@ pub(crate) async fn deliver_announcement(
                 qq.app_secret.clone(),
                 qq.allowed_users.clone(),
             );
-            channel.send(&SendMessage::new(output, target)).await?;
+            channel
+                .send(&SendMessage::new(safe_output.as_str(), target))
+                .await?;
         }
         other => anyhow::bail!("unsupported delivery channel: {other}"),
     }
@@ -657,6 +819,7 @@ mod tests {
             delivery: DeliveryConfig::default(),
             delete_after_run: false,
             allowed_tools: None,
+            source: "imperative".into(),
             created_at: Utc::now(),
             next_run: Utc::now(),
             last_run: None,
@@ -667,6 +830,72 @@ mod tests {
 
     fn unique_component(prefix: &str) -> String {
         format!("{prefix}-{}", uuid::Uuid::new_v4())
+    }
+
+    fn agent_job_with_schedule(schedule: crate::cron::Schedule) -> CronJob {
+        CronJob {
+            job_type: JobType::Agent,
+            schedule,
+            ..test_job("echo test")
+        }
+    }
+
+    #[test]
+    fn high_frequency_daily_cron_is_not_flagged() {
+        // `0 6 * * *` fires once per day — must never warn regardless of when the check runs
+        let job = agent_job_with_schedule(crate::cron::Schedule::Cron {
+            expr: "0 6 * * *".into(),
+            tz: Some("America/Chicago".into()),
+        });
+        assert!(!is_high_frequency_agent_job(&job));
+    }
+
+    #[test]
+    fn high_frequency_every_4min_cron_is_flagged() {
+        let job = agent_job_with_schedule(crate::cron::Schedule::Cron {
+            expr: "*/4 * * * *".into(),
+            tz: None,
+        });
+        assert!(is_high_frequency_agent_job(&job));
+    }
+
+    #[test]
+    fn high_frequency_every_5min_cron_is_not_flagged() {
+        // Exactly 5 minutes is acceptable (threshold is strictly less than 5)
+        let job = agent_job_with_schedule(crate::cron::Schedule::Cron {
+            expr: "*/5 * * * *".into(),
+            tz: None,
+        });
+        assert!(!is_high_frequency_agent_job(&job));
+    }
+
+    #[test]
+    fn high_frequency_every_interval_below_threshold_is_flagged() {
+        let job = agent_job_with_schedule(crate::cron::Schedule::Every {
+            every_ms: 4 * 60 * 1000, // 4 minutes
+        });
+        assert!(is_high_frequency_agent_job(&job));
+    }
+
+    #[test]
+    fn high_frequency_every_interval_at_threshold_is_not_flagged() {
+        let job = agent_job_with_schedule(crate::cron::Schedule::Every {
+            every_ms: 5 * 60 * 1000, // exactly 5 minutes
+        });
+        assert!(!is_high_frequency_agent_job(&job));
+    }
+
+    #[test]
+    fn high_frequency_shell_job_is_never_flagged() {
+        // Shell jobs are exempt regardless of frequency
+        let job = CronJob {
+            job_type: JobType::Shell,
+            schedule: crate::cron::Schedule::Every {
+                every_ms: 60 * 1000, // 1 minute
+            },
+            ..test_job("echo test")
+        };
+        assert!(!is_high_frequency_agent_job(&job));
     }
 
     #[tokio::test]
@@ -919,7 +1148,7 @@ mod tests {
         let component = unique_component("scheduler-idle");
 
         crate::health::mark_component_error(&component, "pre-existing error");
-        process_due_jobs(&config, &security, Vec::new(), &component).await;
+        process_due_jobs(&config, &security, Vec::new(), &component, &None).await;
 
         let snapshot = crate::health::snapshot_json();
         let entry = &snapshot["components"][component.as_str()];
@@ -940,7 +1169,7 @@ mod tests {
         let component = unique_component("scheduler-fail");
 
         crate::health::mark_component_ok(&component);
-        process_due_jobs(&config, &security, vec![job], &component).await;
+        process_due_jobs(&config, &security, vec![job], &component, &None).await;
 
         let snapshot = crate::health::snapshot_json();
         let entry = &snapshot["components"][component.as_str()];
@@ -1231,9 +1460,10 @@ mod tests {
         let err = deliver_if_configured(&config, &job, "hello")
             .await
             .unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("matrix delivery channel requires `channel-matrix` feature"));
+        assert!(
+            err.to_string()
+                .contains("matrix delivery channel requires `channel-matrix` feature")
+        );
     }
 
     #[test]
@@ -1280,5 +1510,111 @@ mod tests {
         // all_overdue_jobs ignores the limit
         let overdue = cron::all_overdue_jobs(&config, far_future).unwrap();
         assert_eq!(overdue.len(), 3, "all_overdue_jobs must return all");
+    }
+
+    #[test]
+    fn scan_and_redact_output_redacts_credentials() {
+        let leaked_output = "Deployment key: sk_test_FAKE1234567890abcdefgh"; // gitleaks:allow
+
+        let redacted = scan_and_redact_output("telegram", "123456", leaked_output);
+
+        assert!(
+            !redacted.as_str().contains("sk_test_FAKE1234567890abcdefgh"), // gitleaks:allow
+            "credentials must be redacted"
+        );
+        assert!(redacted.as_str().contains("[REDACTED"));
+    }
+
+    #[test]
+    fn scan_and_redact_output_preserves_clean_output() {
+        let clean_output = "Deployment completed successfully at 2024-03-15 10:00:00";
+
+        let redacted = scan_and_redact_output("telegram", "123456", clean_output);
+
+        assert_eq!(redacted.as_str(), clean_output);
+    }
+
+    // ── Broadcast / EventBroadcast tests ─────────────────────────────
+
+    #[tokio::test]
+    async fn broadcast_sends_cron_result_on_success() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp).await;
+        let job = test_job("echo broadcast-ok");
+        let security = Arc::new(SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+        ));
+        let component = unique_component("broadcast-ok");
+
+        let (tx, mut rx) = tokio::sync::broadcast::channel::<serde_json::Value>(16);
+        let event_tx: EventBroadcast = Some(tx);
+
+        process_due_jobs(&config, &security, vec![job], &component, &event_tx).await;
+
+        let event = rx.try_recv().expect("should receive a broadcast event");
+        assert_eq!(event["type"], "cron_result");
+        assert_eq!(event["job_id"], "test-job");
+        assert_eq!(event["success"], true);
+        assert!(event["output"].as_str().unwrap().contains("broadcast-ok"));
+        assert!(event["timestamp"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn broadcast_sends_cron_result_on_failure() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp).await;
+        let job = test_job("ls definitely_missing_file_for_broadcast_fail_test");
+        let security = Arc::new(SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+        ));
+        let component = unique_component("broadcast-fail");
+
+        let (tx, mut rx) = tokio::sync::broadcast::channel::<serde_json::Value>(16);
+        let event_tx: EventBroadcast = Some(tx);
+
+        process_due_jobs(&config, &security, vec![job], &component, &event_tx).await;
+
+        let event = rx.try_recv().expect("should receive a broadcast event");
+        assert_eq!(event["type"], "cron_result");
+        assert_eq!(event["job_id"], "test-job");
+        assert_eq!(event["success"], false);
+        assert!(event["timestamp"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn broadcast_none_skips_without_error() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp).await;
+        let job = test_job("echo no-broadcast");
+        let security = Arc::new(SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+        ));
+        let component = unique_component("broadcast-none");
+
+        // event_tx = None — should complete without panic.
+        process_due_jobs(&config, &security, vec![job], &component, &None).await;
+    }
+
+    #[tokio::test]
+    async fn broadcast_handles_no_subscribers() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp).await;
+        let job = test_job("echo no-subscribers");
+        let security = Arc::new(SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+        ));
+        let component = unique_component("broadcast-no-sub");
+
+        let (tx, _) = tokio::sync::broadcast::channel::<serde_json::Value>(16);
+        // Drop the only receiver immediately — `let _ = tx.send(...)` in
+        // process_due_jobs must not panic when there are no subscribers.
+        let event_tx: EventBroadcast = Some(tx);
+
+        process_due_jobs(&config, &security, vec![job], &component, &event_tx).await;
+        // If we got here without panic, the test passes.
     }
 }
