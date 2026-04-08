@@ -186,27 +186,6 @@ impl Tool for DocumentSearchTool {
 - `observability-prometheus` - 指标监控
 - 用户自定义依赖：您的SQLite连接库
 
-## FAQ
-
-### Q: RAG模块是基于SQLite还是实际文档？
-**A**: ZeroClaw的RAG是**基于实际文档**（Markdown、txt、PDF文件）的专用实现，专为硬件数据手册设计。
-
-**当前方案**：
-- ❌ 裁剪ZeroClaw的RAG模块（硬件专用，不匹配需求）
-- ✅ 将用户现有的SQLite文档系统封装为`search_documents`工具
-
-这样Agent可以通过工具调用访问文档库，无需额外的RAG基础设施。
-
-### Q: 为什么不用ZeroClaw的Memory来存文档？
-**A**: 
-- **Memory**（`src/memory/`）：用于**对话历史和Agent记忆**，SQLite后端，结构简单
-- **您的文档系统**：专门的文档管理，可能包含全文搜索、标签、权限等
-
-两者职责分离：
-- Memory = Agent的"短期记忆"
-- 您的SQLite = "知识库"
-- 通过Tool让Agent调用知识库，架构更清晰
-
 ## 集成工作流
 
 ### 方案：Fork镜像 + 项目内精简
