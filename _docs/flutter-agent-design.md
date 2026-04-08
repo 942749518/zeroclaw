@@ -207,12 +207,163 @@ impl Tool for DocumentSearchTool {
 - 您的SQLite = "知识库"
 - 通过Tool让Agent调用知识库，架构更清晰
 
+## 集成工作流
+
+### 方案：Fork镜像 + 项目内精简
+
+**核心原则**：
+- **Fork保持纯净**：仅作为上游镜像，不修改代码
+- **精简在用户项目**：通过自动化脚本完成裁剪
+- **更新一键完成**：脚本处理复制+精简全过程
+
+### 目录结构
+
+```
+# ZeroClaw Fork（保持不变）
+~/zeroclaw-fork/          # 上游镜像
+├── .git/
+├── src/                  # 完整源码
+├── Cargo.toml
+└── ...
+
+# 您的项目
+your-project/
+├── Cargo.toml
+├── src/
+├── vendor/
+│   └── zeroclaw/         # 精简后的代码（提交到git）
+│       ├── src/          # 裁剪后的源码
+│       └── Cargo.toml    # 精简后的配置
+├── scripts/
+│   └── update-zeroclaw.sh  # 更新脚本
+└── flutter_rust_bridge/
+    └── ...
+```
+
+### 更新脚本
+
+```bash
+#!/bin/bash
+# scripts/update-zeroclaw.sh
+
+set -e
+
+ZEROCAWK_FORK="$HOME/zeroclaw-fork"
+PROJECT_DIR="$(dirname "$(dirname "$(realpath "$0")")")"
+VENDOR_DIR="$PROJECT_DIR/vendor/zeroclaw"
+
+echo "🔄 更新 ZeroClaw..."
+
+# 1. 拉取上游更新
+cd "$ZEROCAWK_FORK"
+git checkout main
+git pull origin main
+
+echo "📦 复制到项目..."
+
+# 2. 复制完整代码
+rm -rf "$VENDOR_DIR"
+mkdir -p "$VENDOR_DIR"
+rsync -av --exclude='.git' --exclude='target' \
+    "$ZEROCAWK_FORK/" "$VENDOR_DIR/"
+
+echo "✂️  开始精简..."
+
+# 3. 删除不需要的模块
+rm -rf "$VENDOR_DIR/src/channels"
+rm -rf "$VENDOR_DIR/src/gateway"
+rm -rf "$VENDOR_DIR/src/peripherals"
+rm -rf "$VENDOR_DIR/src/rag"
+rm -rf "$VENDOR_DIR/src/cron"
+rm -rf "$VENDOR_DIR/src/plugins"
+
+# 4. 删除CLI相关（可选，如需纯库）
+rm -f "$VENDOR_DIR/src/main.rs"
+
+# 5. 修改Cargo.toml
+# 使用sed删除不需要的features和依赖
+cd "$VENDOR_DIR"
+
+# 删除channels相关的features
+sed -i '/channel-/d' Cargo.toml
+
+# 删除不需要的依赖行
+sed -i '/matrix-sdk/d' Cargo.toml
+sed -i '/axum/d' Cargo.toml
+sed -i '/hyper/d' Cargo.toml
+sed -i '/tokio-tungstenite/d' Cargo.toml
+sed -i '/nostr-sdk/d' Cargo.toml
+# ... 其他不需要的依赖
+
+# 6. 清理[[bin]]部分（如不需要CLI）
+# 保留[lib]部分
+
+# 7. 更新lib.rs，移除已删除模块的声明
+# 需要手动调整或使用更复杂的脚本
+
+echo "✅ 更新完成！"
+echo ""
+echo "精简统计："
+echo "  源码文件: $(find "$VENDOR_DIR/src" -name '*.rs' | wc -l) 个"
+echo "  目录大小: $(du -sh "$VENDOR_DIR" | cut -f1)"
+echo ""
+echo "运行 cargo check 验证..."
+cd "$PROJECT_DIR"
+cargo check
+```
+
+### 使用方法
+
+```bash
+# 首次设置
+git clone https://github.com/zeroclaw/zeroclaw.git ~/zeroclaw-fork
+git remote add upstream https://github.com/original/zeroclaw.git
+
+# 日常更新
+./scripts/update-zeroclaw.sh
+
+# 提交精简版本
+git add vendor/zeroclaw/
+git commit -m "Update zeroclaw to v0.6.9 (trimmed)"
+```
+
+### 优势
+
+| 优势 | 说明 |
+|------|------|
+| **Fork零维护** | 只是一个镜像，永远不改代码 |
+| **更新简单** | 一键脚本，自动处理 |
+| **版本可控** | vendor/zeroclaw可提交到git，锁定版本 |
+| **构建快速** | 精简后代码量小，编译快 |
+| **可追溯** | 脚本即文档，清晰明确 |
+
+### 注意事项
+
+1. **首次需要手动调整**：`lib.rs`中的模块声明需要手动移除已删除的模块
+2. **Cargo.toml调整**：脚本使用sed处理，复杂情况需手动验证
+3. **版本对齐**：确保您的项目Cargo.toml与ZeroClaw的依赖版本一致
+
+### 依赖版本对齐
+
+```toml
+# 您的项目的 Cargo.toml
+[dependencies]
+zeroclaw = { path = "vendor/zeroclaw" }
+
+# 确保这些与ZeroClaw一致
+tokio = { version = "1.50", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+anyhow = "1.0"
+reqwest = { version = "0.12", features = ["json"] }
+```
+
 ## 讨论要点
 
 1. **文档搜索工具**：确认用户SQLite的表结构，设计Tool参数
 2. **Memory隔离**：明确区分Agent Memory（对话）与文档库（知识）
 3. **安全策略**：定义文档搜索的权限边界（能否跨用户访问？）
 4. **Cargo features**：确定条件编译的feature粒度
+5. **脚本完善**：补充lib.rs模块声明的自动处理逻辑
 
 ## 体积估算
 
