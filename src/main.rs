@@ -36,7 +36,7 @@
 )]
 
 use anyhow::{Context, Result, bail};
-use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use dialoguer::{Password, Select};
 use serde::{Deserialize, Serialize};
 use std::io::{IsTerminal, Write};
@@ -49,12 +49,30 @@ fn parse_temperature(s: &str) -> std::result::Result<f64, String> {
     config::schema::validate_temperature(t)
 }
 
-fn print_no_command_help() -> Result<()> {
-    println!("No command provided.");
-    println!("Try `zeroclaw onboard` to initialize your workspace.");
+fn print_no_command_help(cmd: clap::Command) -> Result<()> {
+    #[cfg(feature = "agent-runtime")]
+    {
+        println!(
+            "{}",
+            crate::i18n::get_cli_string("cli-no-command-provided")
+                .as_deref()
+                .unwrap_or("No command provided.")
+        );
+        println!(
+            "{}",
+            crate::i18n::get_cli_string("cli-try-onboard")
+                .as_deref()
+                .unwrap_or("Try `zeroclaw onboard` to initialize your workspace.")
+        );
+    }
+    #[cfg(not(feature = "agent-runtime"))]
+    {
+        println!("No command provided.");
+        println!("Try `zeroclaw onboard` to initialize your workspace.");
+    }
     println!();
 
-    let mut cmd = Cli::command();
+    let mut cmd = cmd;
     cmd.print_help()?;
     println!();
 
@@ -129,6 +147,8 @@ mod platform;
 #[cfg(feature = "plugins-wasm")]
 mod plugins;
 mod providers;
+#[cfg(feature = "schema-export")]
+mod schema_markdown;
 #[cfg(feature = "agent-runtime")]
 mod security;
 #[cfg(feature = "agent-runtime")]
@@ -412,8 +432,8 @@ Examples:
   zeroclaw cron add-at 2025-01-15T14:00:00Z 'Send reminder' --agent
   zeroclaw cron add-every 60000 'Ping heartbeat'
   zeroclaw cron once 30m 'Run backup in 30 minutes' --agent
-  zeroclaw cron pause <task-id>
-  zeroclaw cron update <task-id> --expression '0 8 * * *' --tz Europe/London")]
+  zeroclaw cron pause TASK_ID
+  zeroclaw cron update TASK_ID --expression '0 8 * * *' --tz Europe/London")]
     Cron {
         #[command(subcommand)]
         cron_command: CronCommands,
@@ -526,7 +546,7 @@ Examples:
   zeroclaw memory stats
   zeroclaw memory list
   zeroclaw memory list --category core --limit 10
-  zeroclaw memory get <key>
+  zeroclaw memory get KEY
   zeroclaw memory clear --category conversation --yes")]
     Memory {
         #[command(subcommand)]
@@ -623,6 +643,14 @@ Examples:
         #[arg(value_enum)]
         shell: CompletionShell,
     },
+
+    /// Print the full CLI reference as Markdown (used by the docs pipeline).
+    #[command(hide = true)]
+    MarkdownHelp,
+
+    /// Print the config JSON Schema (used by the docs pipeline).
+    #[command(hide = true)]
+    MarkdownSchema,
 
     /// Launch or install the companion desktop app
     #[command(long_about = "\
@@ -929,6 +957,42 @@ enum MemoryCommands {
     },
 }
 
+fn apply_i18n_to_command(cmd: clap::Command) -> clap::Command {
+    #[cfg(feature = "agent-runtime")]
+    {
+        apply_cmd_translations(cmd, "cli")
+    }
+    #[cfg(not(feature = "agent-runtime"))]
+    cmd
+}
+
+#[cfg(feature = "agent-runtime")]
+fn apply_cmd_translations(cmd: clap::Command, prefix: &str) -> clap::Command {
+    let sub_names: Vec<String> = cmd
+        .get_subcommands()
+        .map(|s| s.get_name().to_string())
+        .collect();
+
+    let about_key = format!("{prefix}-about");
+    let cmd = match crate::i18n::get_cli_string(&about_key) {
+        Some(about) => cmd.about(about),
+        None => cmd,
+    };
+
+    let long_about_key = format!("{prefix}-long-about");
+    let cmd = match crate::i18n::get_cli_string(&long_about_key) {
+        Some(long_about) => cmd.long_about(long_about),
+        None => cmd,
+    };
+
+    let mut cmd = cmd;
+    for name in &sub_names {
+        let child_prefix = format!("{prefix}-{name}");
+        cmd = cmd.mut_subcommand(name, |sub| apply_cmd_translations(sub, &child_prefix));
+    }
+    cmd
+}
+
 #[tokio::main]
 #[allow(clippy::too_many_lines)]
 async fn main() -> Result<()> {
@@ -940,11 +1004,16 @@ async fn main() -> Result<()> {
         eprintln!("Warning: Failed to install default crypto provider: {e:?}");
     }
 
+    #[cfg(feature = "agent-runtime")]
+    crate::i18n::init(&crate::i18n::detect_locale());
+
+    let cmd = apply_i18n_to_command(Cli::command());
+
     if std::env::args_os().len() <= 1 {
-        return print_no_command_help();
+        return print_no_command_help(cmd);
     }
 
-    let cli = Cli::parse();
+    let cli = Cli::from_arg_matches(&cmd.get_matches()).map_err(|e| e.exit())?;
 
     if let Some(config_dir) = &cli.config_dir {
         if config_dir.trim().is_empty() {
@@ -960,6 +1029,25 @@ async fn main() -> Result<()> {
         let mut stdout = std::io::stdout().lock();
         write_shell_completion(*shell, &mut stdout)?;
         return Ok(());
+    }
+
+    // Docs-pipeline subcommands: stdout-only, no config load, no logging init.
+    match &cli.command {
+        Commands::MarkdownHelp => {
+            clap_markdown::print_help_markdown::<Cli>();
+            return Ok(());
+        }
+        Commands::MarkdownSchema => {
+            #[cfg(feature = "schema-export")]
+            {
+                let schema = schemars::schema_for!(config::Config);
+                print!("{}", schema_markdown::generate(&schema.to_value()));
+                return Ok(());
+            }
+            #[cfg(not(feature = "schema-export"))]
+            anyhow::bail!("zeroclaw was built without the 'schema-export' feature");
+        }
+        _ => {}
     }
 
     // Initialize logging - respects RUST_LOG env var, defaults to INFO.
@@ -1205,7 +1293,9 @@ async fn main() -> Result<()> {
                 }
                 return Ok(());
             }
-            Commands::Completions { shell } => unreachable!(),
+            Commands::Completions { .. } | Commands::MarkdownHelp | Commands::MarkdownSchema => {
+                unreachable!()
+            }
             _ => {
                 anyhow::bail!(
                     "This command requires the full runtime. Rebuild with default features:\n  cargo build --release"
@@ -1216,7 +1306,10 @@ async fn main() -> Result<()> {
 
     #[cfg(feature = "agent-runtime")]
     match cli.command {
-        Commands::Onboard { .. } | Commands::Completions { .. } => unreachable!(),
+        Commands::Onboard { .. }
+        | Commands::Completions { .. }
+        | Commands::MarkdownHelp
+        | Commands::MarkdownSchema => unreachable!(),
 
         Commands::Agent {
             message,
@@ -2148,204 +2241,7 @@ async fn main() -> Result<()> {
 fn build_wizard_callbacks() -> onboard::WizardCallbacks {
     onboard::WizardCallbacks {
         #[cfg(feature = "hardware")]
-        hardware_setup: Some(Box::new(|| {
-            use console::style;
-            use dialoguer::{Confirm, Select};
-
-            println!(
-                "  {} {}",
-                style("ℹ").dim(),
-                style("ZeroClaw can talk to physical hardware (LEDs, sensors, motors).").dim()
-            );
-            println!(
-                "  {} {}",
-                style("ℹ").dim(),
-                style("Scanning for connected devices...").dim()
-            );
-            println!();
-
-            let devices = zeroclaw_hardware::discover_hardware();
-
-            if devices.is_empty() {
-                println!(
-                    "  {} {}",
-                    style("ℹ").dim(),
-                    style("No hardware devices detected on this system.").dim()
-                );
-                println!(
-                    "  {} {}",
-                    style("ℹ").dim(),
-                    style("You can enable hardware later in config.toml under [hardware].").dim()
-                );
-            } else {
-                println!(
-                    "  {} {} device(s) found:",
-                    style("✓").green().bold(),
-                    devices.len()
-                );
-                for device in &devices {
-                    let detail = device
-                        .detail
-                        .as_deref()
-                        .map(|d| format!(" ({d})"))
-                        .unwrap_or_default();
-                    let path = device
-                        .device_path
-                        .as_deref()
-                        .map(|p| format!(" → {p}"))
-                        .unwrap_or_default();
-                    println!(
-                        "    {} {}{}{} [{}]",
-                        style("›").cyan(),
-                        style(&device.name).green(),
-                        style(&detail).dim(),
-                        style(&path).dim(),
-                        style(device.transport.to_string()).cyan()
-                    );
-                }
-            }
-            println!();
-
-            let options = vec![
-                "🚀 Native — direct GPIO on this Linux board (Raspberry Pi, Orange Pi, etc.)",
-                "🔌 Tethered — control an Arduino/ESP32/Nucleo plugged into USB",
-                "🔬 Debug Probe — flash/read MCUs via SWD/JTAG (probe-rs)",
-                "☁️  Software Only — no hardware access (default)",
-            ];
-
-            let recommended = zeroclaw_hardware::recommended_wizard_default(&devices);
-
-            let choice = Select::new()
-                .with_prompt("  How should ZeroClaw interact with the physical world?")
-                .items(&options)
-                .default(recommended)
-                .interact()?;
-
-            let mut hw_config = zeroclaw_hardware::config_from_wizard_choice(choice, &devices);
-
-            use zeroclaw_config::schema::HardwareTransport;
-
-            // Serial: pick a port if multiple found
-            if hw_config.transport_mode() == HardwareTransport::Serial {
-                let serial_devices: Vec<&zeroclaw_hardware::DiscoveredDevice> = devices
-                    .iter()
-                    .filter(|d| d.transport == HardwareTransport::Serial)
-                    .collect();
-
-                if serial_devices.len() > 1 {
-                    let port_labels: Vec<String> = serial_devices
-                        .iter()
-                        .map(|d| {
-                            format!(
-                                "{} ({})",
-                                d.device_path.as_deref().unwrap_or("unknown"),
-                                d.name
-                            )
-                        })
-                        .collect();
-
-                    let port_idx = Select::new()
-                        .with_prompt("  Multiple serial devices found — select one")
-                        .items(&port_labels)
-                        .default(0)
-                        .interact()?;
-
-                    hw_config.serial_port = serial_devices[port_idx].device_path.clone();
-                } else if serial_devices.is_empty() {
-                    let manual_port: String = dialoguer::Input::new()
-                        .with_prompt("  Serial port path (e.g. /dev/ttyUSB0)")
-                        .default("/dev/ttyUSB0".into())
-                        .interact_text()?;
-                    hw_config.serial_port = Some(manual_port);
-                }
-
-                // Baud rate
-                let baud_options = vec![
-                    "115200 (default, recommended)",
-                    "9600 (legacy Arduino)",
-                    "57600",
-                    "230400",
-                    "Custom",
-                ];
-                let baud_idx = Select::new()
-                    .with_prompt("  Serial baud rate")
-                    .items(&baud_options)
-                    .default(0)
-                    .interact()?;
-
-                hw_config.baud_rate = match baud_idx {
-                    1 => 9600,
-                    2 => 57600,
-                    3 => 230_400,
-                    4 => {
-                        let custom: String = dialoguer::Input::new()
-                            .with_prompt("  Custom baud rate")
-                            .default("115200".into())
-                            .interact_text()?;
-                        custom.parse::<u32>().unwrap_or(115_200)
-                    }
-                    _ => 115_200,
-                };
-            }
-
-            // Probe: ask for target chip
-            if hw_config.transport_mode() == HardwareTransport::Probe
-                && hw_config.probe_target.is_none()
-            {
-                let target: String = dialoguer::Input::new()
-                    .with_prompt("  Target MCU chip (e.g. STM32F411CEUx, nRF52840_xxAA)")
-                    .default("STM32F411CEUx".into())
-                    .interact_text()?;
-                hw_config.probe_target = Some(target);
-            }
-
-            // Datasheet RAG
-            if hw_config.enabled {
-                let datasheets = Confirm::new()
-                    .with_prompt(
-                        "  Enable datasheet RAG? (index PDF schematics for AI pin lookups)",
-                    )
-                    .default(true)
-                    .interact()?;
-                hw_config.workspace_datasheets = datasheets;
-            }
-
-            // Summary
-            if hw_config.enabled {
-                let transport_label = match hw_config.transport_mode() {
-                    HardwareTransport::Native => "Native GPIO".to_string(),
-                    HardwareTransport::Serial => format!(
-                        "Serial → {} @ {} baud",
-                        hw_config.serial_port.as_deref().unwrap_or("?"),
-                        hw_config.baud_rate
-                    ),
-                    HardwareTransport::Probe => format!(
-                        "Probe (SWD/JTAG) → {}",
-                        hw_config.probe_target.as_deref().unwrap_or("?")
-                    ),
-                    HardwareTransport::None => "Software Only".to_string(),
-                };
-
-                println!(
-                    "  {} Hardware: {} | datasheets: {}",
-                    style("✓").green().bold(),
-                    style(&transport_label).green(),
-                    if hw_config.workspace_datasheets {
-                        style("on").green().to_string()
-                    } else {
-                        style("off").dim().to_string()
-                    }
-                );
-            } else {
-                println!(
-                    "  {} Hardware: {}",
-                    style("✓").green().bold(),
-                    style("disabled (software only)").dim()
-                );
-            }
-
-            Ok(hw_config)
-        })),
+        hardware_setup: Some(Box::new(zeroclaw_hardware::wizard::run_setup)),
         #[cfg(not(feature = "hardware"))]
         hardware_setup: None,
 

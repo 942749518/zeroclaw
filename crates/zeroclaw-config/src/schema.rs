@@ -405,7 +405,7 @@ pub struct Config {
     /// Locale for tool descriptions (e.g. `"en"`, `"zh-CN"`).
     ///
     /// When set, tool descriptions shown in system prompts are loaded from
-    /// `tool_descriptions/<locale>.toml`. Falls back to English, then to
+    /// Fluent `.ftl` locale files. Falls back to embedded English, then to
     /// hardcoded descriptions.
     ///
     /// If omitted or empty, the locale is auto-detected from `ZEROCLAW_LOCALE`,
@@ -511,6 +511,7 @@ impl Default for WorkspaceConfig {
 pub struct ModelProviderConfig {
     /// API key for this provider.
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
     /// Optional provider type/name override.
@@ -608,6 +609,7 @@ pub struct DelegateAgentConfig {
     /// Optional API key override
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_key: Option<String>,
     /// Temperature override
     #[serde(default)]
@@ -871,6 +873,7 @@ pub struct TranscriptionConfig {
     /// If unset, runtime falls back to `GROQ_API_KEY` for backward compatibility.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_key: Option<String>,
     /// Whisper API endpoint URL (Groq provider).
     #[serde(default = "default_transcription_api_url")]
@@ -1195,6 +1198,7 @@ pub struct OpenAiTtsConfig {
     /// API key for OpenAI TTS.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_key: Option<String>,
     /// Model name (default `"tts-1"`).
     #[serde(default = "default_openai_tts_model")]
@@ -1212,6 +1216,7 @@ pub struct ElevenLabsTtsConfig {
     /// API key for ElevenLabs.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_key: Option<String>,
     /// Model ID (default `"eleven_monolingual_v1"`).
     #[serde(default = "default_elevenlabs_model_id")]
@@ -1232,6 +1237,7 @@ pub struct GoogleTtsConfig {
     /// API key for Google Cloud TTS.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_key: Option<String>,
     /// Language code (default `"en-US"`).
     #[serde(default = "default_google_tts_language_code")]
@@ -1332,6 +1338,7 @@ pub struct OpenAiSttConfig {
     /// OpenAI API key for Whisper transcription.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_key: Option<String>,
     /// Whisper model name (default: "whisper-1").
     #[serde(default = "default_openai_stt_model")]
@@ -1346,6 +1353,7 @@ pub struct DeepgramSttConfig {
     /// Deepgram API key.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_key: Option<String>,
     /// Deepgram model name (default: "nova-2").
     #[serde(default = "default_deepgram_stt_model")]
@@ -1360,6 +1368,7 @@ pub struct AssemblyAiSttConfig {
     /// AssemblyAI API key.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_key: Option<String>,
 }
 
@@ -1371,6 +1380,7 @@ pub struct GoogleSttConfig {
     /// Google Cloud API key.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_key: Option<String>,
     /// BCP-47 language code (default: "en-US").
     #[serde(default = "default_google_stt_language_code")]
@@ -1390,6 +1400,7 @@ pub struct LocalWhisperConfig {
     /// Omit for unauthenticated local endpoints.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub bearer_token: Option<String>,
     /// Maximum audio file size in bytes accepted by this endpoint.
     /// Defaults to 25 MB — matching the cloud API cap for a safe out-of-the-box
@@ -1666,6 +1677,10 @@ pub struct SkillsConfig {
     /// Default: `false` (secure by default).
     #[serde(default)]
     pub allow_scripts: bool,
+    /// URL of the skills registry repository for bare-name installs.
+    /// Default: `https://github.com/zeroclaw-labs/zeroclaw-skills`
+    #[serde(default)]
+    pub registry_url: Option<String>,
     /// Controls how skills are injected into the system prompt.
     /// `full` preserves legacy behavior. `compact` keeps context small and loads skills on demand.
     #[serde(default)]
@@ -2168,6 +2183,7 @@ pub struct GatewayConfig {
     /// Paired bearer tokens (managed automatically, not user-edited)
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub paired_tokens: Vec<String>,
 
     /// Max `/pair` requests per minute per client key.
@@ -2465,6 +2481,7 @@ pub struct ComposioConfig {
     /// Composio API key (stored encrypted when secrets.encrypt = true)
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_key: Option<String>,
     /// Default entity ID for multi-user setups
     #[serde(default = "default_entity_id")]
@@ -2507,6 +2524,7 @@ pub struct Microsoft365Config {
     /// Azure AD client secret (stored encrypted when secrets.encrypt = true)
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub client_secret: Option<String>,
     /// Authentication flow: "client_credentials" or "device_code"
     #[serde(default = "default_ms365_auth_flow")]
@@ -2593,6 +2611,7 @@ pub struct BrowserComputerUseConfig {
     /// Optional bearer token for computer-use sidecar
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_key: Option<String>,
     /// Per-action request timeout in milliseconds
     #[serde(default = "default_browser_computer_use_timeout_ms")]
@@ -2655,7 +2674,7 @@ pub struct BrowserConfig {
     /// Headless mode for rust-native backend
     #[serde(default = "default_true")]
     pub native_headless: bool,
-    /// WebDriver endpoint URL for rust-native backend (e.g. http://127.0.0.1:9515)
+    /// WebDriver endpoint URL for rust-native backend (e.g. `http://127.0.0.1:9515`)
     #[serde(default = "default_browser_webdriver_url")]
     pub native_webdriver_url: String,
     /// Optional Chrome/Chromium executable path for rust-native backend
@@ -2980,8 +2999,9 @@ pub struct WebSearchConfig {
     /// Brave Search API key (required if provider is "brave")
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub brave_api_key: Option<String>,
-    /// SearXNG instance URL (required if provider is "searxng"), e.g. "https://searx.example.com"
+    /// SearXNG instance URL (required if provider is `"searxng"`), e.g. `"https://searx.example.com"`.
     #[serde(default)]
     pub searxng_instance_url: Option<String>,
     /// Maximum results per search (1-10)
@@ -5029,6 +5049,7 @@ pub struct StorageProviderConfig {
         alias = "databaseUrl"
     )]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub db_url: Option<String>,
 
     /// Database schema for SQL backends.
@@ -5064,17 +5085,43 @@ impl Default for StorageProviderConfig {
     }
 }
 
-/// Memory backend configuration (`[memory]` section).
+/// PostgreSQL memory backend configuration (`[memory.postgres]` section).
 ///
-/// Controls conversation memory storage, embeddings, hybrid search, response caching,
-/// and memory snapshot/hydration.
-/// Configuration for Qdrant vector database backend (`[memory.qdrant]`).
-/// Used when `[memory].backend = "qdrant"`.
+/// Used when `[memory].backend = "postgres"`. Connection parameters
+/// (`db_url`, `schema`, `table`, `connect_timeout_secs`) live under
+/// `[storage.provider.config]`; this struct only holds vector-search settings.
+#[derive(Debug, Clone, Serialize, Deserialize, Configurable)]
+#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
+#[prefix = "memory.postgres"]
+pub struct PostgresMemoryConfig {
+    /// Enable pgvector extension for hybrid vector+keyword recall.
+    #[serde(default)]
+    pub vector_enabled: bool,
+
+    /// Vector dimensions for pgvector embeddings (default: 1536).
+    #[serde(default = "default_pgvector_dimensions")]
+    pub vector_dimensions: usize,
+}
+
+impl Default for PostgresMemoryConfig {
+    fn default() -> Self {
+        Self {
+            vector_enabled: false,
+            vector_dimensions: default_pgvector_dimensions(),
+        }
+    }
+}
+
+/// Qdrant vector database backend configuration (`[memory.qdrant]` section).
+///
+/// Used when `[memory].backend = "qdrant"`. URL, collection, and API key all
+/// fall back to environment variables (`QDRANT_URL`, `QDRANT_COLLECTION`,
+/// `QDRANT_API_KEY`) when not set explicitly.
 #[derive(Debug, Clone, Serialize, Deserialize, Configurable)]
 #[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
 #[prefix = "memory.qdrant"]
 pub struct QdrantConfig {
-    /// Qdrant server URL (e.g. "http://localhost:6333").
+    /// Qdrant server URL (e.g. `"http://localhost:6333"`).
     /// Falls back to `QDRANT_URL` env var if not set.
     #[serde(default)]
     pub url: Option<String>,
@@ -5116,13 +5163,19 @@ pub enum SearchMode {
     Hybrid,
 }
 
+/// Memory backend configuration (`[memory]` section).
+///
+/// Controls conversation memory storage, embeddings, hybrid search, response
+/// caching, and memory snapshot/hydration. Backend-specific sub-tables
+/// (`[memory.qdrant]`, `[memory.postgres]`) live alongside.
 #[derive(Debug, Clone, Serialize, Deserialize, Configurable)]
 #[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
 #[prefix = "memory"]
 #[allow(clippy::struct_excessive_bools)]
 pub struct MemoryConfig {
-    /// "sqlite" | "lucid" | "qdrant" | "markdown" | "none" (`none` = explicit no-op memory)
+    /// "sqlite" | "lucid" | "postgres" | "qdrant" | "markdown" | "none" (`none` = explicit no-op memory)
     ///
+    /// `postgres` uses `[storage.provider.config].db_url`; requires `--features memory-postgres` build.
     /// `qdrant` uses `[memory.qdrant]` config or `QDRANT_URL` env var.
     pub backend: String,
     /// Auto-save user-stated conversation input to memory (assistant output is excluded)
@@ -5244,6 +5297,13 @@ pub struct MemoryConfig {
     #[serde(default)]
     #[nested]
     pub qdrant: QdrantConfig,
+
+    // ── PostgreSQL backend options ─────────────────────────────
+    /// Configuration for PostgreSQL memory backend (`[memory.postgres]`).
+    /// Only used when `backend = "postgres"`.
+    #[serde(default)]
+    #[nested]
+    pub postgres: PostgresMemoryConfig,
 }
 
 /// Memory policy configuration (`[memory.policy]` section).
@@ -5282,6 +5342,10 @@ fn default_conflict_threshold() -> f64 {
 }
 fn default_audit_retention_days() -> u32 {
     30
+}
+
+fn default_pgvector_dimensions() -> usize {
+    1536
 }
 
 fn default_embedding_provider() -> String {
@@ -5367,6 +5431,7 @@ impl Default for MemoryConfig {
             policy: MemoryPolicyConfig::default(),
             sqlite_open_timeout_secs: None,
             qdrant: QdrantConfig::default(),
+            postgres: PostgresMemoryConfig::default(),
         }
     }
 }
@@ -5381,7 +5446,7 @@ pub struct ObservabilityConfig {
     /// "none" | "log" | "verbose" | "prometheus" | "otel"
     pub backend: String,
 
-    /// OTLP endpoint (e.g. "http://localhost:4318"). Only used when backend = "otel".
+    /// OTLP endpoint (e.g. `"http://localhost:4318"`). Only used when backend = `"otel"`.
     #[serde(default)]
     pub otel_endpoint: Option<String>,
 
@@ -6333,6 +6398,7 @@ pub struct CloudflareTunnelConfig {
     /// Cloudflare Tunnel token (from Zero Trust dashboard)
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub token: String,
 }
 
@@ -6355,6 +6421,7 @@ pub struct NgrokTunnelConfig {
     /// ngrok auth token
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub auth_token: String,
     /// Optional custom domain
     #[serde(default)]
@@ -6412,6 +6479,7 @@ pub struct PinggyTunnelConfig {
     /// Pinggy access token (optional — free tier works without one).
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub token: Option<String>,
     /// Server region: `"us"` (USA), `"eu"` (Europe), `"ap"` (Asia), `"br"` (South America), `"au"` (Australia), or omit for auto.
     #[serde(default)]
@@ -6556,6 +6624,9 @@ pub struct ChannelsConfig {
     #[cfg(feature = "voice-wake")]
     #[nested]
     pub voice_wake: Option<VoiceWakeConfig>,
+    /// Voice duplex configuration (full-duplex voice over WebSocket).
+    #[nested]
+    pub voice_duplex: Option<VoiceDuplexConfig>,
     /// MQTT channel configuration (SOP listener).
     #[nested]
     pub mqtt: Option<MqttConfig>,
@@ -6784,6 +6855,7 @@ impl Default for ChannelsConfig {
             voice_call: None,
             #[cfg(feature = "voice-wake")]
             voice_wake: None,
+            voice_duplex: None,
             mqtt: None,
             message_timeout_secs: default_channel_message_timeout_secs(),
             ack_reactions: true,
@@ -6823,6 +6895,10 @@ fn default_telegram_approval_timeout_secs() -> u64 {
     120
 }
 
+fn default_channel_approval_timeout_secs() -> u64 {
+    300
+}
+
 fn default_matrix_draft_update_interval_ms() -> u64 {
     1500
 }
@@ -6837,6 +6913,7 @@ pub struct TelegramConfig {
     pub enabled: bool,
     /// Telegram Bot API token (from @BotFather).
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub bot_token: String,
     /// Allowed Telegram user IDs or usernames. Empty = deny all.
     pub allowed_users: Vec<String>,
@@ -6889,6 +6966,7 @@ pub struct DiscordConfig {
     pub enabled: bool,
     /// Discord bot token (from Discord Developer Portal).
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub bot_token: String,
     /// Optional guild (server) ID to restrict the bot to a single guild.
     pub guild_id: Option<String>,
@@ -6928,6 +7006,9 @@ pub struct DiscordConfig {
     /// and retry if no progress is made within this duration. 0 = disabled.
     #[serde(default)]
     pub stall_timeout_secs: u64,
+    /// Seconds to wait for operator approval on `always_ask` tools before auto-denying.
+    #[serde(default = "default_channel_approval_timeout_secs")]
+    pub approval_timeout_secs: u64,
 }
 
 impl ChannelConfig for DiscordConfig {
@@ -6949,6 +7030,7 @@ pub struct DiscordHistoryConfig {
     pub enabled: bool,
     /// Discord bot token (from Discord Developer Portal).
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub bot_token: String,
     /// Optional guild (server) ID to restrict logging to a single guild.
     pub guild_id: Option<String>,
@@ -6989,9 +7071,11 @@ pub struct SlackConfig {
     pub enabled: bool,
     /// Slack bot OAuth token (xoxb-...).
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub bot_token: String,
     /// Slack app-level token for Socket Mode (xapp-...).
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub app_token: Option<String>,
     /// Explicit list of channel IDs to watch.
     /// Empty = listen across all accessible channels.
@@ -7033,6 +7117,9 @@ pub struct SlackConfig {
     /// Leave unset to disable reaction-based cancellation.
     #[serde(default)]
     pub cancel_reaction: Option<String>,
+    /// Seconds to wait for operator approval on `always_ask` tools before auto-denying.
+    #[serde(default = "default_channel_approval_timeout_secs")]
+    pub approval_timeout_secs: u64,
 }
 
 fn default_slack_draft_update_interval_ms() -> u64 {
@@ -7060,6 +7147,7 @@ pub struct MattermostConfig {
     pub url: String,
     /// Mattermost bot access token.
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub bot_token: String,
     /// Optional channel ID to restrict the bot to a single channel.
     pub channel_id: Option<String>,
@@ -7120,6 +7208,7 @@ pub struct WebhookConfig {
     pub auth_header: Option<String>,
     /// Optional shared secret for webhook signature verification (HMAC-SHA256).
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub secret: Option<String>,
 }
 
@@ -7165,6 +7254,7 @@ pub struct MatrixConfig {
     pub homeserver: String,
     /// Matrix access token for the bot account.
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub access_token: String,
     /// Optional Matrix user ID (e.g. `"@bot:matrix.org"`).
     #[serde(default)]
@@ -7199,12 +7289,17 @@ pub struct MatrixConfig {
     /// Optional Matrix recovery key for automatic E2EE key backup restore.
     /// When set, ZeroClaw recovers room keys and cross-signing secrets on startup.
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     #[serde(default)]
     pub recovery_key: Option<String>,
     /// Optional login password for Matrix account (used for initial login flow).
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     #[serde(default)]
     pub password: Option<String>,
+    /// Seconds to wait for operator approval on `always_ask` tools before auto-denying.
+    #[serde(default = "default_channel_approval_timeout_secs")]
+    pub approval_timeout_secs: u64,
 }
 
 impl ChannelConfig for MatrixConfig {
@@ -7223,7 +7318,7 @@ pub struct SignalConfig {
     /// Whether this channel is active (must be explicitly enabled). Default: false.
     #[serde(default)]
     pub enabled: bool,
-    /// Base URL for the signal-cli HTTP daemon (e.g. "http://127.0.0.1:8686").
+    /// Base URL for the signal-cli HTTP daemon (e.g. `"http://127.0.0.1:8686"`).
     pub http_url: String,
     /// E.164 phone number of the signal-cli account (e.g. "+1234567890").
     pub account: String,
@@ -7246,6 +7341,9 @@ pub struct SignalConfig {
     /// Overrides the global `[proxy]` setting for this channel only.
     #[serde(default)]
     pub proxy_url: Option<String>,
+    /// Seconds to wait for operator approval on `always_ask` tools before auto-denying.
+    #[serde(default = "default_channel_approval_timeout_secs")]
+    pub approval_timeout_secs: u64,
 }
 
 impl ChannelConfig for SignalConfig {
@@ -7302,6 +7400,7 @@ pub struct WhatsAppConfig {
     /// Access token from Meta Business Suite (Cloud API mode)
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub access_token: Option<String>,
     /// Phone number ID from Meta Business API (Cloud API mode)
     #[serde(default)]
@@ -7310,12 +7409,14 @@ pub struct WhatsAppConfig {
     /// Only used in Cloud API mode
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub verify_token: Option<String>,
     /// App secret from Meta Business Suite (for webhook signature verification)
     /// Can also be set via `ZEROCLAW_WHATSAPP_APP_SECRET` environment variable
     /// Only used in Cloud API mode
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub app_secret: Option<String>,
     /// Session database path for WhatsApp Web client (Web mode)
     /// When set, enables native WhatsApp Web mode with wa-rs
@@ -7371,6 +7472,9 @@ pub struct WhatsAppConfig {
     /// Overrides the global `[proxy]` setting for this channel only.
     #[serde(default)]
     pub proxy_url: Option<String>,
+    /// Seconds to wait for operator approval on `always_ask` tools before auto-denying.
+    #[serde(default = "default_channel_approval_timeout_secs")]
+    pub approval_timeout_secs: u64,
 }
 
 impl ChannelConfig for WhatsAppConfig {
@@ -7391,12 +7495,14 @@ pub struct LinqConfig {
     pub enabled: bool,
     /// Linq Partner API token (Bearer auth)
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_token: String,
     /// Phone number to send from (E.164 format)
     pub from_phone: String,
     /// Webhook signing secret for signature verification
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub signing_secret: Option<String>,
     /// Allowed sender handles (phone numbers) or "*" for all
     #[serde(default)]
@@ -7422,8 +7528,9 @@ pub struct WatiConfig {
     pub enabled: bool,
     /// WATI API token (Bearer auth).
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_token: String,
-    /// WATI API base URL (default: https://live-mt-server.wati.io).
+    /// WATI API base URL (default: <https://live-mt-server.wati.io>).
     #[serde(default = "default_wati_api_url")]
     pub api_url: String,
     /// Tenant ID for multi-channel setups (optional).
@@ -7459,16 +7566,18 @@ pub struct NextcloudTalkConfig {
     /// Whether this channel is active (must be explicitly enabled). Default: false.
     #[serde(default)]
     pub enabled: bool,
-    /// Nextcloud base URL (e.g. "https://cloud.example.com").
+    /// Nextcloud base URL (e.g. `"https://cloud.example.com"`).
     pub base_url: String,
     /// Bot app token used for OCS API bearer auth.
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub app_token: String,
     /// Shared secret for webhook signature verification.
     ///
     /// Can also be set via `ZEROCLAW_NEXTCLOUD_TALK_WEBHOOK_SECRET`.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub webhook_secret: Option<String>,
     /// Allowed Nextcloud actor IDs (`[]` = deny all, `"*"` = allow all).
     #[serde(default)]
@@ -7552,6 +7661,7 @@ pub struct MqttConfig {
     pub username: Option<String>,
     /// Password for authentication (optional).
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub password: Option<String>,
     /// Enable TLS encryption. Must match the broker_url scheme:
     /// - `mqtt://` → `use_tls: false`
@@ -7656,12 +7766,15 @@ pub struct IrcConfig {
     pub allowed_users: Vec<String>,
     /// Server password (for bouncers like ZNC)
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub server_password: Option<String>,
     /// NickServ IDENTIFY password
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub nickserv_password: Option<String>,
     /// SASL PLAIN password (IRCv3)
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub sasl_password: Option<String>,
     /// Verify TLS certificate (default: true)
     pub verify_tls: Option<bool>,
@@ -7706,14 +7819,17 @@ pub struct LarkConfig {
     pub app_id: String,
     /// App Secret from Lark/Feishu developer console
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub app_secret: String,
     /// Encrypt key for webhook message decryption (optional)
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub encrypt_key: Option<String>,
     /// Verification token for webhook validation (optional)
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub verification_token: Option<String>,
     /// Allowed user IDs or union IDs (empty = deny all, "*" = allow all)
     #[serde(default)]
@@ -7789,12 +7905,14 @@ pub struct LineConfig {
     /// Falls back to the `LINE_CHANNEL_ACCESS_TOKEN` environment variable if empty.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub channel_access_token: String,
     /// Channel secret (from LINE Developers Console).
     /// Used to verify the `X-Line-Signature` header on incoming webhooks.
     /// Falls back to the `LINE_CHANNEL_SECRET` environment variable if empty.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub channel_secret: String,
     /// DM (1:1 chat) access policy. Default: `pairing`.
     ///
@@ -7848,14 +7966,17 @@ pub struct FeishuConfig {
     pub app_id: String,
     /// App Secret from Feishu developer console
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub app_secret: String,
     /// Encrypt key for webhook message decryption (optional)
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub encrypt_key: Option<String>,
     /// Verification token for webhook validation (optional)
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub verification_token: Option<String>,
     /// Allowed user IDs or union IDs (empty = deny all, "*" = allow all)
     #[serde(default)]
@@ -7943,7 +8064,7 @@ pub struct WebAuthnConfig {
     /// Relying Party ID (domain name, e.g. "example.com"). Default: "localhost".
     #[serde(default = "default_webauthn_rp_id")]
     pub rp_id: String,
-    /// Relying Party origin URL (e.g. "https://example.com"). Default: "http://localhost:42617".
+    /// Relying Party origin URL (e.g. `"https://example.com"`). Default: `"http://localhost:42617"`.
     #[serde(default = "default_webauthn_rp_origin")]
     pub rp_origin: String,
     /// Relying Party display name. Default: "ZeroClaw".
@@ -8125,6 +8246,7 @@ pub struct NevisConfig {
     /// OAuth2 client secret. Encrypted via SecretStore when stored on disk.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub client_secret: Option<String>,
 
     /// Token validation strategy: `"local"` (JWKS) or `"remote"` (introspection).
@@ -8415,6 +8537,7 @@ pub struct DingTalkConfig {
     pub client_id: String,
     /// Client Secret (AppSecret) from DingTalk developer console
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub client_secret: String,
     /// Allowed user IDs (staff IDs). Empty = deny all, "*" = allow all
     #[serde(default)]
@@ -8444,6 +8567,7 @@ pub struct WeComConfig {
     pub enabled: bool,
     /// Webhook key from WeCom Bot configuration
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub webhook_key: String,
     /// Allowed user IDs. Empty = deny all, "*" = allow all
     #[serde(default)]
@@ -8471,6 +8595,7 @@ pub struct QQConfig {
     pub app_id: String,
     /// App Secret from QQ Bot developer console
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub app_secret: String,
     /// Allowed user IDs. Empty = deny all, "*" = allow all
     #[serde(default)]
@@ -8500,6 +8625,7 @@ pub struct TwitterConfig {
     pub enabled: bool,
     /// Twitter API v2 Bearer Token (OAuth 2.0)
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub bearer_token: String,
     /// Allowed usernames or user IDs. Empty = deny all, "*" = allow all
     #[serde(default)]
@@ -8527,6 +8653,7 @@ pub struct MochatConfig {
     pub api_url: String,
     /// Mochat API token
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_token: String,
     /// Allowed user IDs. Empty = deny all, "*" = allow all
     #[serde(default)]
@@ -8561,9 +8688,11 @@ pub struct RedditConfig {
     pub client_id: String,
     /// Reddit OAuth2 client secret.
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub client_secret: String,
     /// Reddit OAuth2 refresh token for persistent access.
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub refresh_token: String,
     /// Reddit bot username (without `u/` prefix).
     pub username: String,
@@ -8594,6 +8723,7 @@ pub struct BlueskyConfig {
     pub handle: String,
     /// App-specific password (from Bluesky settings).
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub app_password: String,
 }
 
@@ -8604,6 +8734,19 @@ impl ChannelConfig for BlueskyConfig {
     fn desc() -> &'static str {
         "AT Protocol"
     }
+}
+
+/// Voice duplex configuration (`[channels.voice_duplex]`).
+///
+/// Enables full-duplex voice event handling over WebSocket.
+/// When disabled (default), voice events are rejected as unknown types.
+#[derive(Debug, Clone, Serialize, Deserialize, Configurable, Default)]
+#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
+pub struct VoiceDuplexConfig {
+    /// Enable full-duplex voice event handling over WebSocket.
+    /// Default: false. When false, voice events are rejected as unknown types.
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 /// Voice wake word detection channel configuration.
@@ -8687,6 +8830,7 @@ pub struct NostrConfig {
     pub enabled: bool,
     /// Private key in hex or nsec bech32 format
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub private_key: String,
     /// Relay URLs (wss://). Defaults to popular public relays if omitted.
     #[serde(default = "default_nostr_relays")]
@@ -8731,6 +8875,7 @@ pub struct NotionConfig {
     pub enabled: bool,
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_key: String,
     #[serde(default)]
     pub database_id: String,
@@ -8814,6 +8959,7 @@ pub struct JiraConfig {
     /// Jira API token. Encrypted at rest. Falls back to `JIRA_API_TOKEN` env var.
     #[serde(default)]
     #[secret]
+    #[cfg_attr(feature = "schema-export", schemars(extend("x-secret" = true)))]
     pub api_token: String,
     /// Actions the agent is permitted to call.
     /// Valid values: `"get_ticket"`, `"search_tickets"`, `"comment_ticket"`.
@@ -8862,13 +9008,13 @@ pub struct CloudOpsConfig {
     /// Supported cloud providers. Default: [`aws`, `azure`, `gcp`].
     #[serde(default = "default_cloud_ops_supported_clouds")]
     pub supported_clouds: Vec<String>,
-    /// Supported IaC tools for review. Default: [`terraform`].
+    /// Supported IaC tools for review. Default: \[`terraform`\].
     #[serde(default = "default_cloud_ops_iac_tools")]
     pub iac_tools: Vec<String>,
     /// Monthly USD threshold to flag cost items. Default: 100.0.
     #[serde(default = "default_cloud_ops_cost_threshold")]
     pub cost_threshold_monthly_usd: f64,
-    /// Well-Architected Frameworks to check against. Default: [`aws-waf`].
+    /// Well-Architected Frameworks to check against. Default: \[`aws-waf`\].
     #[serde(default = "default_cloud_ops_waf")]
     pub well_architected_frameworks: Vec<String>,
 }
@@ -11614,6 +11760,39 @@ auto_save = true
     }
 
     #[test]
+    async fn memory_config_pgvector_defaults() {
+        let memory = MemoryConfig::default();
+        assert!(!memory.postgres.vector_enabled);
+        assert_eq!(memory.postgres.vector_dimensions, 1536);
+    }
+
+    #[test]
+    async fn memory_config_pgvector_roundtrip() {
+        let toml = r#"
+            backend = "postgres"
+            [postgres]
+            vector_enabled = true
+            vector_dimensions = 768
+        "#;
+        let parsed: MemoryConfig = toml::from_str(toml).unwrap();
+        assert!(parsed.postgres.vector_enabled);
+        assert_eq!(parsed.postgres.vector_dimensions, 768);
+
+        let serialized = toml::to_string(&parsed).unwrap();
+        let reparsed: MemoryConfig = toml::from_str(&serialized).unwrap();
+        assert!(reparsed.postgres.vector_enabled);
+        assert_eq!(reparsed.postgres.vector_dimensions, 768);
+    }
+
+    #[test]
+    async fn memory_config_pgvector_defaults_when_omitted() {
+        let toml = r#"backend = "postgres""#;
+        let parsed: MemoryConfig = toml::from_str(toml).unwrap();
+        assert!(!parsed.postgres.vector_enabled);
+        assert_eq!(parsed.postgres.vector_dimensions, 1536);
+    }
+
+    #[test]
     async fn channels_default() {
         let c = ChannelsConfig::default();
         assert!(c.cli);
@@ -11738,6 +11917,7 @@ auto_save = true
                 reddit: None,
                 bluesky: None,
                 voice_call: None,
+                voice_duplex: None,
                 #[cfg(feature = "voice-wake")]
                 voice_wake: None,
                 mqtt: None,
@@ -12633,6 +12813,7 @@ default_temperature = 0.7
             draft_update_interval_ms: 1000,
             multi_message_delay_ms: 800,
             stall_timeout_secs: 0,
+            approval_timeout_secs: 300,
         };
         let json = serde_json::to_string(&dc).unwrap();
         let parsed: DiscordConfig = serde_json::from_str(&json).unwrap();
@@ -12655,6 +12836,7 @@ default_temperature = 0.7
             draft_update_interval_ms: 1000,
             multi_message_delay_ms: 800,
             stall_timeout_secs: 0,
+            approval_timeout_secs: 300,
         };
         let json = serde_json::to_string(&dc).unwrap();
         let parsed: DiscordConfig = serde_json::from_str(&json).unwrap();
@@ -12714,6 +12896,7 @@ default_temperature = 0.7
             recovery_key: None,
             mention_only: false,
             password: None,
+            approval_timeout_secs: 300,
         };
         let json = serde_json::to_string(&mc).unwrap();
         let parsed: MatrixConfig = serde_json::from_str(&json).unwrap();
@@ -12745,6 +12928,7 @@ default_temperature = 0.7
             recovery_key: None,
             mention_only: false,
             password: None,
+            approval_timeout_secs: 300,
         };
         let toml_str = toml::to_string(&mc).unwrap();
         let parsed: MatrixConfig = toml::from_str(&toml_str).unwrap();
@@ -12781,6 +12965,7 @@ allowed_rooms = ["!ops:matrix.org"]
             ignore_attachments: true,
             ignore_stories: false,
             proxy_url: None,
+            approval_timeout_secs: 300,
         };
         let json = serde_json::to_string(&sc).unwrap();
         let parsed: SignalConfig = serde_json::from_str(&json).unwrap();
@@ -12803,6 +12988,7 @@ allowed_rooms = ["!ops:matrix.org"]
             ignore_attachments: false,
             ignore_stories: true,
             proxy_url: None,
+            approval_timeout_secs: 300,
         };
         let toml_str = toml::to_string(&sc).unwrap();
         let parsed: SignalConfig = toml::from_str(&toml_str).unwrap();
@@ -12851,6 +13037,7 @@ allowed_rooms = ["!ops:matrix.org"]
                 recovery_key: None,
                 mention_only: false,
                 password: None,
+                approval_timeout_secs: 300,
             }),
             signal: None,
             whatsapp: None,
@@ -12874,6 +13061,7 @@ allowed_rooms = ["!ops:matrix.org"]
             reddit: None,
             bluesky: None,
             voice_call: None,
+            voice_duplex: None,
             #[cfg(feature = "voice-wake")]
             voice_wake: None,
             mqtt: None,
@@ -13077,6 +13265,7 @@ bot_token = "xoxb-tok"
             dm_mention_patterns: vec![],
             group_mention_patterns: vec![],
             proxy_url: None,
+            approval_timeout_secs: 300,
         };
         let json = serde_json::to_string(&wc).unwrap();
         let parsed: WhatsAppConfig = serde_json::from_str(&json).unwrap();
@@ -13106,6 +13295,7 @@ bot_token = "xoxb-tok"
             dm_mention_patterns: vec![],
             group_mention_patterns: vec![],
             proxy_url: None,
+            approval_timeout_secs: 300,
         };
         let toml_str = toml::to_string(&wc).unwrap();
         let parsed: WhatsAppConfig = toml::from_str(&toml_str).unwrap();
@@ -13140,6 +13330,7 @@ bot_token = "xoxb-tok"
             dm_mention_patterns: vec![],
             group_mention_patterns: vec![],
             proxy_url: None,
+            approval_timeout_secs: 300,
         };
         let toml_str = toml::to_string(&wc).unwrap();
         let parsed: WhatsAppConfig = toml::from_str(&toml_str).unwrap();
@@ -13166,6 +13357,7 @@ bot_token = "xoxb-tok"
             dm_mention_patterns: vec![],
             group_mention_patterns: vec![],
             proxy_url: None,
+            approval_timeout_secs: 300,
         };
         assert!(wc.is_ambiguous_config());
         assert_eq!(wc.backend_type(), "cloud");
@@ -13191,6 +13383,7 @@ bot_token = "xoxb-tok"
             dm_mention_patterns: vec![],
             group_mention_patterns: vec![],
             proxy_url: None,
+            approval_timeout_secs: 300,
         };
         assert!(!wc.is_ambiguous_config());
         assert_eq!(wc.backend_type(), "web");
@@ -13227,6 +13420,7 @@ bot_token = "xoxb-tok"
                 dm_mention_patterns: vec![],
                 group_mention_patterns: vec![],
                 proxy_url: None,
+                approval_timeout_secs: 300,
             }),
             linq: None,
             wati: None,
@@ -13248,6 +13442,7 @@ bot_token = "xoxb-tok"
             reddit: None,
             bluesky: None,
             voice_call: None,
+            voice_duplex: None,
             #[cfg(feature = "voice-wake")]
             voice_wake: None,
             mqtt: None,
@@ -16696,6 +16891,7 @@ auto_approve = ["file_read", "file_write", "file_edit", "memory_recall", "memory
             recovery_key: None,
             mention_only: false,
             password: None,
+            approval_timeout_secs: 300,
         };
         let fields = mx.secret_fields();
         assert_eq!(fields.len(), 3);
@@ -16725,6 +16921,7 @@ auto_approve = ["file_read", "file_write", "file_edit", "memory_recall", "memory
             recovery_key: None,
             mention_only: false,
             password: None,
+            approval_timeout_secs: 300,
         };
         let fields = mx.secret_fields();
         assert!(!fields[0].is_set);
@@ -16747,6 +16944,7 @@ auto_approve = ["file_read", "file_write", "file_edit", "memory_recall", "memory
             recovery_key: None,
             mention_only: false,
             password: None,
+            approval_timeout_secs: 300,
         };
         mx.set_secret("channels.matrix.access-token", "new-token".into())
             .unwrap();
@@ -16770,6 +16968,7 @@ auto_approve = ["file_read", "file_write", "file_edit", "memory_recall", "memory
             recovery_key: None,
             mention_only: false,
             password: None,
+            approval_timeout_secs: 300,
         };
         assert!(
             mx.set_secret("channels.matrix.nonexistent", "val".into())
@@ -16810,6 +17009,7 @@ auto_approve = ["file_read", "file_write", "file_edit", "memory_recall", "memory
             recovery_key: None,
             mention_only: false,
             password: None,
+            approval_timeout_secs: 300,
         });
 
         let fields = config.secret_fields();
@@ -16836,6 +17036,7 @@ auto_approve = ["file_read", "file_write", "file_edit", "memory_recall", "memory
             recovery_key: None,
             mention_only: false,
             password: None,
+            approval_timeout_secs: 300,
         });
 
         config
@@ -16862,6 +17063,7 @@ auto_approve = ["file_read", "file_write", "file_edit", "memory_recall", "memory
             mention_only: false,
             recovery_key: None,
             password: None,
+            approval_timeout_secs: 300,
         });
         config
             .set_secret("channels.matrix.access-token", "sk-test".into())
@@ -16902,6 +17104,7 @@ auto_approve = ["file_read", "file_write", "file_edit", "memory_recall", "memory
             recovery_key: None,
             mention_only: false,
             password: None,
+            approval_timeout_secs: 300,
         };
 
         // Encrypt
@@ -16934,6 +17137,7 @@ auto_approve = ["file_read", "file_write", "file_edit", "memory_recall", "memory
             recovery_key: None,
             mention_only: false,
             password: None,
+            approval_timeout_secs: 300,
         };
 
         mx.encrypt_secrets(&store).unwrap();
@@ -16964,6 +17168,7 @@ auto_approve = ["file_read", "file_write", "file_edit", "memory_recall", "memory
             recovery_key: None,
             mention_only: false,
             password: None,
+            approval_timeout_secs: 300,
         };
 
         mx.encrypt_secrets(&store).unwrap();
@@ -16989,6 +17194,7 @@ auto_approve = ["file_read", "file_write", "file_edit", "memory_recall", "memory
             recovery_key: None,
             mention_only: false,
             password: None,
+            approval_timeout_secs: 300,
         }
     }
 
@@ -17409,5 +17615,63 @@ allowed_users = ["@u:m"]
             config.channels.matrix.as_ref().unwrap().enabled,
             "backfill should activate channel even when config has comments"
         );
+    }
+
+    #[test]
+    async fn channel_approval_timeout_secs_defaults_to_300() {
+        // Omitting approval_timeout_secs from each config should deserialize to 300
+        let discord: DiscordConfig =
+            serde_json::from_str(r#"{"bot_token":"tok","enabled":true}"#).unwrap();
+        assert_eq!(discord.approval_timeout_secs, 300);
+
+        let slack: SlackConfig =
+            serde_json::from_str(r#"{"bot_token":"tok","enabled":true}"#).unwrap();
+        assert_eq!(slack.approval_timeout_secs, 300);
+
+        let signal: SignalConfig = serde_json::from_str(
+            r#"{"http_url":"http://localhost","account":"+1","enabled":true}"#,
+        )
+        .unwrap();
+        assert_eq!(signal.approval_timeout_secs, 300);
+
+        let matrix: MatrixConfig = serde_json::from_str(
+            r#"{"homeserver":"https://matrix.org","access_token":"tok","enabled":true,"allowed_users":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(matrix.approval_timeout_secs, 300);
+
+        let whatsapp: WhatsAppConfig = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
+        assert_eq!(whatsapp.approval_timeout_secs, 300);
+    }
+
+    #[test]
+    async fn channel_approval_timeout_secs_explicit_override() {
+        let discord: DiscordConfig = serde_json::from_str(
+            r#"{"bot_token":"tok","enabled":true,"approval_timeout_secs":60}"#,
+        )
+        .unwrap();
+        assert_eq!(discord.approval_timeout_secs, 60);
+
+        let slack: SlackConfig = serde_json::from_str(
+            r#"{"bot_token":"tok","enabled":true,"approval_timeout_secs":120}"#,
+        )
+        .unwrap();
+        assert_eq!(slack.approval_timeout_secs, 120);
+
+        let signal: SignalConfig = serde_json::from_str(
+            r#"{"http_url":"http://localhost","account":"+1","enabled":true,"approval_timeout_secs":90}"#,
+        )
+        .unwrap();
+        assert_eq!(signal.approval_timeout_secs, 90);
+
+        let matrix: MatrixConfig = serde_json::from_str(
+            r#"{"homeserver":"https://matrix.org","access_token":"tok","enabled":true,"allowed_users":[],"approval_timeout_secs":45}"#,
+        )
+        .unwrap();
+        assert_eq!(matrix.approval_timeout_secs, 45);
+
+        let whatsapp: WhatsAppConfig =
+            serde_json::from_str(r#"{"enabled":true,"approval_timeout_secs":180}"#).unwrap();
+        assert_eq!(whatsapp.approval_timeout_secs, 180);
     }
 }

@@ -1054,7 +1054,7 @@ impl DelegateTool {
             skills_prompt_mode: zeroclaw_config::schema::SkillsPromptInjectionMode::Full,
             identity_config: None,
             dispatcher_instructions: "",
-            tool_descriptions: None,
+
             security_summary: None,
             autonomy_level: crate::security::AutonomyLevel::default(),
         };
@@ -1164,7 +1164,7 @@ impl DelegateTool {
                 None,
                 &self.multimodal_config,
                 agent_config.max_iterations,
-                None,
+                Some(self.cancellation_token.child_token()),
                 None,
                 None,
                 &[],
